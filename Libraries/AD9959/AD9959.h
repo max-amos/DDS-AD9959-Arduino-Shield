@@ -385,7 +385,7 @@ public:
   {
     setChannels(chan);
     write(RDW, increment);                      // Rising Sweep Delta Word
-    write(FDW, increment);                      // Falling Sweep Delta Word
+    write(FDW, decrement);                      // Falling Sweep Delta Word
     write(LSRR, (down_rate<<8) | up_rate);      // Linear Sweep Ramp Rate
   }
 
