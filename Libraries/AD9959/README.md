@@ -16,9 +16,11 @@ The chip also needs RESET, a chip enable, I/O_UPDATE and four Profile
 pins. This library expects you to control the profile pins if you
 want to start and stop sweeps.
 
-The internal PLL clock multiplier defaults to 20, which produces
-500MHz from a 25MHz crystal. You can call setClock() to change
-this if needed, or to apply a frequency calibration constant.
+The internal PLL clock multiplier defaults to 12 (GRA&AFCH fork;
+upstream cjheath uses 20). With a 25MHz crystal this produces
+300MHz; with the GRA&AFCH shield's 40MHz reference, 480MHz.
+You can call setClock() to change this if needed, or to apply
+a frequency calibration constant.
 
 This library does not support configuring modulation or the power-down
 modes. Ramp-up and ramp-down (amplitude ramping, available when
@@ -31,7 +33,7 @@ You must provide pin numbers for Chip Enable, Reset, and I/O Update.
 
 The reference_freq parameter provides your crystal frequency.
 The DDS core then runs at that frequency times the PLL multiplier,
-which defaults to the maximum of 20.
+which defaults to 12 (GRA&AFCH fork).
 
 The SPIRate parameter sets the SPI bit-rate. This library uses the
 Arduino standard hardware SPI device.
@@ -57,8 +59,10 @@ sweep or phase accumulator on any change, for example.
 ## Changing the DDS core frequency
 
 Configure the PLL multiplier or apply a core frequency calibration
-by calling setClock().  The default core frequency is 20 times the
-reference frequency.  You can set the multiplier as low as 4.
+by calling setClock().  The default core frequency is 12 times the
+reference frequency (GRA&AFCH fork).  You can set the multiplier
+as low as 4.  The refFreq parameter allows overriding the template
+reference frequency at runtime.
 Any other value disables the multiplier.
 
 The calibration parameter supports frequency calibration.
@@ -69,7 +73,7 @@ negative if it's low). Provide this value as your new calibration
 value.  For example if you program 10MHz, but measure 10000043.2Hz,
 your calibration factor should be 4320.
 
-    setClock(int mult = 20, uint32_t calibration = 0)
+    setClock(int mult = 12, uint32_t refFreq = reference_freq, int32_t calibration = 0)
 
     dds.setClock(4, 1200);
 
