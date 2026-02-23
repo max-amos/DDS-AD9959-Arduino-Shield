@@ -43,6 +43,17 @@ public:
     // Expose protected members for testing
     using AD9959::write;
     using AD9959::read;
+
+    // Mirror of MyAD9959::setChannelPowerDown from firmware
+    void setChannelPowerDown(ChannelNum chan, bool powerDown)
+    {
+        setChannels(chan);
+        if (powerDown)
+            write(CFR, (CFR_Bits)(CFR_Bits::DACFullScale | CFR_Bits::MatchPipeDelay | CFR_Bits::OutputSineWave | CFR_Bits::DigitalPowerDown | CFR_Bits::DACPowerDown));
+        else
+            write(CFR, (CFR_Bits)(CFR_Bits::DACFullScale | CFR_Bits::MatchPipeDelay | CFR_Bits::OutputSineWave));
+        update();
+    }
 };
 
 // ===== Test framework =====
@@ -1007,6 +1018,194 @@ TEST(channel_or_combination)
 }
 
 // ========================================================================
+//  setChannelPowerDown TESTS
+// ========================================================================
+
+TEST(setChannelPowerDown_enables_power_down)
+{
+    auto& dds = get_dds();
+    dds.setChannels(TestDDS::Channel0);
+    clear_logs();
+
+    dds.setChannelPowerDown(TestDDS::Channel0, true);
+    bool found_cfr = false;
+    for (auto& t : spi_log) {
+        if (spi_reg(t) == TestDDS::CFR) {
+            found_cfr = true;
+            uint32_t cfr_val = spi_data(t);
+            ASSERT_TRUE(cfr_val & TestDDS::DigitalPowerDown);
+            ASSERT_TRUE(cfr_val & TestDDS::DACPowerDown);
+            ASSERT_TRUE(cfr_val & TestDDS::DACFullScale);
+            ASSERT_TRUE(cfr_val & TestDDS::MatchPipeDelay);
+            ASSERT_TRUE(cfr_val & TestDDS::OutputSineWave);
+        }
+    }
+    ASSERT_TRUE(found_cfr);
+}
+
+TEST(setChannelPowerDown_disables_power_down)
+{
+    auto& dds = get_dds();
+    dds.setChannels(TestDDS::Channel0);
+    clear_logs();
+
+    dds.setChannelPowerDown(TestDDS::Channel0, false);
+    bool found_cfr = false;
+    for (auto& t : spi_log) {
+        if (spi_reg(t) == TestDDS::CFR) {
+            found_cfr = true;
+            uint32_t cfr_val = spi_data(t);
+            // Should NOT have power-down bits
+            ASSERT_TRUE(!(cfr_val & TestDDS::DigitalPowerDown));
+            ASSERT_TRUE(!(cfr_val & TestDDS::DACPowerDown));
+            // Should still have default bits
+            ASSERT_TRUE(cfr_val & TestDDS::DACFullScale);
+            ASSERT_TRUE(cfr_val & TestDDS::MatchPipeDelay);
+            ASSERT_TRUE(cfr_val & TestDDS::OutputSineWave);
+        }
+    }
+    ASSERT_TRUE(found_cfr);
+}
+
+TEST(setChannelPowerDown_pulses_update)
+{
+    auto& dds = get_dds();
+    dds.setChannels(TestDDS::Channel0);
+    clear_logs();
+
+    dds.setChannelPowerDown(TestDDS::Channel0, true);
+    // Should pulse UpdatePin after CFR write
+    bool found_high = false, found_low_after = false;
+    for (size_t i = 0; i < pin_log.size(); i++) {
+        if (pin_log[i].type == PinOp::WRITE && pin_log[i].pin == PIN_UPDATE) {
+            if (pin_log[i].value == HIGH)
+                found_high = true;
+            else if (found_high && pin_log[i].value == LOW)
+                found_low_after = true;
+        }
+    }
+    ASSERT_TRUE(found_high);
+    ASSERT_TRUE(found_low_after);
+}
+
+TEST(setChannelPowerDown_per_channel)
+{
+    auto& dds = get_dds();
+    dds.setChannels(TestDDS::ChannelNone);
+    clear_logs();
+
+    // Power down Channel2 specifically
+    dds.setChannelPowerDown(TestDDS::Channel2, true);
+    // First SPI transaction should be CSR selecting Channel2
+    ASSERT_TRUE(spi_log.size() >= 2);
+    ASSERT_EQ(spi_reg(spi_log[0]), TestDDS::CSR);
+    // Channel2 | IO3Wire = 0x40 | 0x02 = 0x42
+    ASSERT_EQ(spi_data(spi_log[0]), 0x42u);
+    // Second should be CFR with power-down bits
+    ASSERT_EQ(spi_reg(spi_log[1]), TestDDS::CFR);
+}
+
+// ========================================================================
+//  RESET DEFAULT TESTS
+// ========================================================================
+
+TEST(reset_default_cfr_value)
+{
+    // After reset, CFR should be: DACFullScale | MatchPipeDelay | OutputSineWave
+    uint32_t expected = TestDDS::DACFullScale | TestDDS::MatchPipeDelay | TestDDS::OutputSineWave;
+    ASSERT_EQ(expected, 0x000321u); // 0x300 + 0x20 + 0x01
+}
+
+// ========================================================================
+//  SWEEP CW1 ALIGNMENT TESTS
+// ========================================================================
+
+TEST(sweepAmplitude_cw1_msb_aligned)
+{
+    auto& dds = get_dds();
+    dds.setChannels(TestDDS::Channel0);
+    clear_logs();
+
+    // Amplitude 512 should be MSB-aligned into CW1's 32-bit word
+    // Formula: amplitude * (1 << (32-10)) = 512 * (1 << 22) = 512 * 4194304 = 0x80000000
+    dds.sweepAmplitude(TestDDS::Channel0, 512);
+    for (auto& t : spi_log) {
+        if (spi_reg(t) == TestDDS::CW1) {
+            uint32_t expected = ((uint32_t)512) * (0x1 << (32-10));
+            ASSERT_EQ(spi_data(t), expected);
+        }
+    }
+}
+
+TEST(sweepPhase_cw1_msb_aligned)
+{
+    auto& dds = get_dds();
+    dds.setChannels(TestDDS::Channel0);
+    clear_logs();
+
+    // Phase 8192 (180 degrees) should be MSB-aligned into CW1
+    // Formula: phase * (1 << (32-14)) = 8192 * (1 << 18) = 8192 * 262144 = 0x80000000
+    dds.sweepPhase(TestDDS::Channel0, 8192);
+    for (auto& t : spi_log) {
+        if (spi_reg(t) == TestDDS::CW1) {
+            uint32_t expected = ((uint32_t)8192) * (0x1 << (32-14));
+            ASSERT_EQ(spi_data(t), expected);
+        }
+    }
+}
+
+TEST(sweepFrequency_each_channel)
+{
+    auto& dds = get_dds();
+
+    // Test sweep on each channel individually
+    TestDDS::ChannelNum channels[] = {TestDDS::Channel0, TestDDS::Channel1, TestDDS::Channel2, TestDDS::Channel3};
+    uint8_t channel_csr[] = {0x12, 0x22, 0x42, 0x82}; // chan | IO3Wire
+
+    for (int c = 0; c < 4; c++) {
+        dds.setChannels(TestDDS::ChannelNone);
+        clear_logs();
+
+        dds.sweepFrequency(channels[c], 10000000);
+        // First: CSR write selecting the channel
+        ASSERT_EQ(spi_reg(spi_log[0]), TestDDS::CSR);
+        ASSERT_EQ(spi_data(spi_log[0]), (uint32_t)channel_csr[c]);
+        // Should have CFR and CW1 writes
+        bool found_cfr = false, found_cw1 = false;
+        for (auto& t : spi_log) {
+            if (spi_reg(t) == TestDDS::CFR) found_cfr = true;
+            if (spi_reg(t) == TestDDS::CW1) found_cw1 = true;
+        }
+        ASSERT_TRUE(found_cfr);
+        ASSERT_TRUE(found_cw1);
+    }
+}
+
+TEST(setFrequency_each_channel_individually)
+{
+    auto& dds = get_dds();
+
+    TestDDS::ChannelNum channels[] = {TestDDS::Channel0, TestDDS::Channel1, TestDDS::Channel2, TestDDS::Channel3};
+    uint32_t freqs[] = {1000000, 10000000, 50000000, 100000000};
+
+    for (int c = 0; c < 4; c++) {
+        dds.setChannels(TestDDS::ChannelNone);
+        clear_logs();
+
+        dds.setFrequency(channels[c], freqs[c]);
+        // Should write CFTW with correct delta
+        bool found_cftw = false;
+        for (auto& t : spi_log) {
+            if (spi_reg(t) == TestDDS::CFTW) {
+                found_cftw = true;
+                ASSERT_EQ(spi_data(t), dds.frequencyDelta(freqs[c]));
+            }
+        }
+        ASSERT_TRUE(found_cftw);
+    }
+}
+
+// ========================================================================
 //  EDGE CASE TESTS
 // ========================================================================
 
@@ -1135,6 +1334,21 @@ int main()
     RUN(sweepPhase_writes_cfr_phase_mode);
     RUN(sweepRates_writes_rdw_fdw_lsrr);
     RUN(sweepRates_default_decrement_zero);
+
+    printf("\nsetChannelPowerDown Tests:\n");
+    RUN(setChannelPowerDown_enables_power_down);
+    RUN(setChannelPowerDown_disables_power_down);
+    RUN(setChannelPowerDown_pulses_update);
+    RUN(setChannelPowerDown_per_channel);
+
+    printf("\nReset Default Tests:\n");
+    RUN(reset_default_cfr_value);
+
+    printf("\nSweep CW1 Alignment Tests:\n");
+    RUN(sweepAmplitude_cw1_msb_aligned);
+    RUN(sweepPhase_cw1_msb_aligned);
+    RUN(sweepFrequency_each_channel);
+    RUN(setFrequency_each_channel_individually);
 
     printf("\nsetClock Tests:\n");
     RUN(setClock_writes_fr1);
