@@ -220,9 +220,9 @@ public:
    */
   void reset(
     CFR_Bits cfr =
-      CFR_Bits::DACFullScale |
+      (CFR_Bits)(CFR_Bits::DACFullScale |
       CFR_Bits::MatchPipeDelay |
-      CFR_Bits::OutputSineWave
+      CFR_Bits::OutputSineWave)
   )
   {
     pulse(ResetPin);                    // (minimum 5 cycles of the 30MHz clock)

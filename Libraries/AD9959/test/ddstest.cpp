@@ -6,11 +6,23 @@
 #include	<string.h>
 #include	<math.h>
 
+#include	"Arduino.h"
+#include	"SPI.h"
+
+// Define extern globals from instrumented mocks
+std::vector<PinOp> pin_log;
+SerialDummy Serial;
+std::vector<SPITransaction> spi_log;
+bool spi_in_transaction = false;
+SPIMock SPI;
+
 #include	"AD9959.h"
 
 #define	INCR		0.000005	// The smaller this number, the more test data points
 #define	MAXERR		0.08
-#define	MAX_FREQ	(500*1000*1000)
+#define	REF_FREQ	25000000
+#define	DEFAULT_MULT	12
+#define	MAX_FREQ	(REF_FREQ*DEFAULT_MULT)
 
 bool	verbose = false;
 
