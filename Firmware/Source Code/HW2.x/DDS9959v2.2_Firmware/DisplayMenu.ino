@@ -360,6 +360,7 @@ String PreZero(int Digit, uint8_t Qty = 3) {
       if (Digit < 10) return "0" + String(Digit);
       return String(Digit);
   }
+  return String(Digit);
 }
 
 void DisplayHello() {

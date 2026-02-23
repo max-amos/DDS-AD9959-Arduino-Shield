@@ -158,7 +158,7 @@ public:
     AllChanAutoClearSweep    = 0x8000,  // Clear sweep accumulator(s) on I/O_UPDATE
     AllChanClearSweep        = 0x4000,  // Clear sweep accumulator(s) immediately
     AllChanAutoClearPhase    = 0x2000,  // Clear phase accumulator(s) on I/O_UPDATE
-    AllChanClearPhase        = 0x2000,  // Clear phase accumulator(s) immediately
+    AllChanClearPhase        = 0x1000,  // Clear phase accumulator(s) immediately
     AutoSyncEnable   = 0x0080,
     MasterSyncEnable = 0x0040,
     MasterSyncStatus = 0x0020,
@@ -265,7 +265,7 @@ public:
     // High VCO Gain is needed for a 255-500MHz master clock, and not up to 160Mhz
     // In-between is unspecified.
     SPI.transfer(
-      (core_clock > 200 ? FR1_Bits::VCOGain : 0)
+      (core_clock > 255000000UL ? FR1_Bits::VCOGain : 0)
       | (mult*FR1_Bits::PllDivider)
       | FR1_Bits::ChargePump3         // Lock fast
     );

@@ -233,10 +233,11 @@ void setup() {
 
 void ModeButtonDown()
 {
-  volatile static uint32_t lastTimeButtonPressed=millis();
+  volatile static uint32_t lastTimeButtonPressed=0;
   volatile static uint8_t lastState=1;
   volatile static uint8_t currState=1;
   if (millis()-lastTimeButtonPressed < modeButton.debounceTime) return;
+  lastTimeButtonPressed=millis();
   currState=digitalRead(MODE_PIN);
   if ((lastState == HIGH) && (currState == LOW)) modeButton.Update();
   lastState=currState;
@@ -244,10 +245,11 @@ void ModeButtonDown()
 
 void DownButtonDown()
 {
-  volatile static uint32_t lastTimeButtonPressed=millis();
+  volatile static uint32_t lastTimeButtonPressed=0;
   volatile static uint8_t lastState=1;
   volatile static uint8_t currState=1;
   if (millis()-lastTimeButtonPressed < backButton.debounceTime) return;
+  lastTimeButtonPressed=millis();
   currState=digitalRead(BACK_PIN);
   if ((lastState == HIGH) && (currState == LOW)) backButton.Update();
   lastState=currState;

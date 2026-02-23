@@ -5,12 +5,12 @@ By default, the maximum length of one message is 64 bytes, you can change it in 
 int C=-1; //Номер канала(выхода) для управления, по умолчанию не задан (-1), допустимые значения: 0 - 3
 
 #define SERIAL_PACKAGE_MAX_LENGTH 110
-char Buff[SERIAL_PACKAGE_MAX_LENGTH];
+char Buff[SERIAL_PACKAGE_MAX_LENGTH + 1];
 
 const char HELP_STRING [] PROGMEM = "C — Set the current output Channel: (0 — 3)\n"
           "F — Sets Frequency in Hz (100000 — 225000000)\n"
           "A — Sets the power (Amplitude) level of the selected channel in dBm (-60 — -7)\n"
-          "P — Sets the Phase of the selected channel in dBm (0 — 360)\n"
+          "P — Sets the Phase of the selected channel in degrees (0 — 360)\n"
           "M — Gets Model\n"
           "E - Enable Outputs (ALL)\n"
           "D - Disable Outputs (ALL)\n"  
@@ -83,19 +83,19 @@ void ReadSerialCommands()
                 F1_Hz.value = H;
                 F1_kHz.value = K;
                 F1_MHz.value = M;
-                F0OutputFreq = value;
+                F1OutputFreq = value;
               break;
               case 2:
                 F2_Hz.value = H;
                 F2_kHz.value = K;
                 F2_MHz.value = M;
-                F0OutputFreq = value;
+                F2OutputFreq = value;
               break;
               case 3:
                 F3_Hz.value = H;
                 F3_kHz.value = K;
                 F3_MHz.value = M;
-                F0OutputFreq = value;
+                F3OutputFreq = value;
               break;
             }
           } else 
@@ -107,7 +107,7 @@ void ReadSerialCommands()
 
         case 'A': //Power(Amplitude), dBm -60 - -7
           if (C==-1) {Serial.println(F("The output Channel is not selected! Use \"C\" command to select the Channel.")); return;}
-          if (inRange(value, -60, -7))
+          if (inRange(value, -60, -3))
           {
             Serial.print(F("The Power (Amplitude) of Channel "));
             Serial.print(C);
@@ -128,7 +128,7 @@ void ReadSerialCommands()
                 F3_Amplitude.value = -1 * value;
               break;
             }
-          } else Serial.println(F("Power is OUT OF RANGE (-60 — -7)"));
+          } else Serial.println(F("Power is OUT OF RANGE (-60 — -3)"));
         break;
 
         case 'P': //Phase, 0.0 - 360.0
@@ -175,7 +175,7 @@ void ReadSerialCommands()
         break;
 
         case 'M': //Model request
-          Serial.println(F("DDS9959 v1.1"));
+          Serial.println(F("DDS9959 v2.x"));
           //Serial.println(value);
         break;
 
