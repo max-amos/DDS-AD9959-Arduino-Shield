@@ -84,7 +84,16 @@ class MyAD9959 : public AD9959<
     void AllChanAutoClearPhase()
     {
      //setChannels(MyAD9959::Channel0);
-     write(MyAD9959::FR2, FR2_Bits::AllChanAutoClearPhase); 
+     write(MyAD9959::FR2, FR2_Bits::AllChanAutoClearPhase);
+    }
+    void setChannelPowerDown(ChannelNum chan, bool powerDown)
+    {
+      setChannels(chan);
+      if (powerDown)
+        write(CFR, (CFR_Bits)(CFR_Bits::DACFullScale | CFR_Bits::MatchPipeDelay | CFR_Bits::OutputSineWave | CFR_Bits::DigitalPowerDown | CFR_Bits::DACPowerDown));
+      else
+        write(CFR, (CFR_Bits)(CFR_Bits::DACFullScale | CFR_Bits::MatchPipeDelay | CFR_Bits::OutputSineWave));
+      update();
     }
 };
 

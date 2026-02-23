@@ -10,11 +10,11 @@ char Buff[SERIAL_PACKAGE_MAX_LENGTH + 1];
 const char HELP_STRING [] PROGMEM = "C — Set the current output Channel: (0 — 3)\n"
           "F — Sets Frequency in Hz (100000 — 225000000)\n"
           "A — Sets the power (Amplitude) level of the selected channel in dBm (-60 — -3)\n"
-          "P — Sets the Phase of the selected channel in degrees (0 — 360)\n"
+          "P — Sets the Phase of the selected channel in degrees (0 — 360.0, e.g. P90.5)\n"
           "Q — Query current channel state (frequency, amplitude, phase)\n"
           "M — Gets Model\n"
-          "E - Enable Outputs (ALL)\n"
-          "D - Disable Outputs (ALL)\n"
+          "E - Enable Outputs (ALL), E0-E3 enables single channel\n"
+          "D - Disable Outputs (ALL), D0-D3 disables single channel\n"
           "V — Gets Firmware Version\n"
           "h — This Help\n"
           "; — Commands Separator"
@@ -47,7 +47,7 @@ void ReadSerialCommands()
 
     for (int i=0; i < commandsCounter; i++)
     {
-      sscanf(data[i], "%c%ld", &command, &value);
+      int nParsed = sscanf(data[i], "%c%ld", &command, &value);
       switch (command)
       {
 
@@ -136,38 +136,70 @@ void ReadSerialCommands()
           if (C==-1) {Serial.println(F("The output Channel is not selected! Use \"C\" command to select the Channel.")); return;}
           if (inRange(value, 0, 360))
           {
+            // Parse fractional part (e.g., P90.5 -> fraction=5)
+            uint8_t fraction = 0;
+            {
+              const char *dot = strchr(data[i], '.');
+              if (dot && dot[1] >= '0' && dot[1] <= '9') fraction = dot[1] - '0';
+            }
+            // Clamp: 360.1+ is invalid
+            if (value == 360 && fraction > 0) fraction = 0;
             Serial.print(F("The Phase of Channel "));
             Serial.print(C);
             Serial.print(F(" is set to: "));
-            Serial.println(value);
+            Serial.print(value);
+            Serial.print(F("."));
+            Serial.println(fraction);
             switch (C)
             {
               case 0:
                 F0_Phase.value = value;
+                F0_PhaseFraction.value = fraction;
               break;
               case 1:
                 F1_Phase.value = value;
+                F1_PhaseFraction.value = fraction;
               break;
               case 2:
                 F2_Phase.value = value;
+                F2_PhaseFraction.value = fraction;
               break;
               case 3:
                 F3_Phase.value = value;
+                F3_PhaseFraction.value = fraction;
               break;
             }
           } else Serial.println(F("Phase is OUT OF RANGE (0 — 360)"));
         break;
 
-        case 'D': //Firmware Version request
-          Serial.println(F("Outputs Disabled"));
-          digitalWrite(POWER_DOWN_CONTROL_PIN, HIGH);
-          isPWR_DWN = true;
+        case 'D': //Disable outputs
+          if (nParsed == 2 && inRange(value, 0, 3))
+          {
+            static const MyAD9959::ChannelNum chMap[] = {MyAD9959::Channel0, MyAD9959::Channel1, MyAD9959::Channel2, MyAD9959::Channel3};
+            dds.setChannelPowerDown(chMap[value], true);
+            Serial.print(F("Channel "));
+            Serial.print(value);
+            Serial.println(F(" Disabled"));
+          } else {
+            Serial.println(F("Outputs Disabled"));
+            digitalWrite(POWER_DOWN_CONTROL_PIN, HIGH);
+            isPWR_DWN = true;
+          }
         break;
 
-        case 'E': //Firmware Version request
-          Serial.println(F("Outputs Enabled"));
-          digitalWrite(POWER_DOWN_CONTROL_PIN, LOW);
-          isPWR_DWN = false;
+        case 'E': //Enable outputs
+          if (nParsed == 2 && inRange(value, 0, 3))
+          {
+            static const MyAD9959::ChannelNum chMap[] = {MyAD9959::Channel0, MyAD9959::Channel1, MyAD9959::Channel2, MyAD9959::Channel3};
+            dds.setChannelPowerDown(chMap[value], false);
+            Serial.print(F("Channel "));
+            Serial.print(value);
+            Serial.println(F(" Enabled"));
+          } else {
+            Serial.println(F("Outputs Enabled"));
+            digitalWrite(POWER_DOWN_CONTROL_PIN, LOW);
+            isPWR_DWN = false;
+          }
         break;
 
         case 'V': //Firmware Version request
