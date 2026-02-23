@@ -38,7 +38,7 @@ class AD9959:
     FREQ_MIN = 100_000          # 100 kHz
     FREQ_MAX = 225_000_000      # 225 MHz (hard limit)
     AMP_MIN = -60               # dBm
-    AMP_MAX = -7                # dBm (HW1.x) or -3 (HW2.x via encoder)
+    AMP_MAX = -3                # dBm (HW2.x supports -3, HW1.x limited to -7)
     PHASE_MIN = 0               # degrees
     PHASE_MAX = 360             # degrees
     CHANNELS = (0, 1, 2, 3)
@@ -174,18 +174,22 @@ class AD9959:
 
         Args:
             channel: Channel number (0-3)
-            degrees: Phase in degrees (0 - 360, integer)
+            degrees: Phase in degrees (0 - 360.0, supports 0.1 degree resolution)
 
         Returns:
             Response lines from the device.
         """
-        degrees = int(degrees)
-        if not (self.PHASE_MIN <= degrees <= self.PHASE_MAX):
+        deg_int = int(degrees)
+        deg_frac = int(round((degrees - deg_int) * 10)) % 10
+        if not (self.PHASE_MIN <= deg_int <= self.PHASE_MAX):
             raise OutOfRangeError(
                 f"Phase {degrees} deg out of range "
                 f"({self.PHASE_MIN} - {self.PHASE_MAX})"
             )
-        return self._send(f"C{channel};P{degrees}")
+        if deg_int == 360 and deg_frac > 0:
+            raise OutOfRangeError("Phase cannot exceed 360.0 degrees")
+        phase_str = f"{deg_int}.{deg_frac}" if deg_frac else str(deg_int)
+        return self._send(f"C{channel};P{phase_str}")
 
     def set_channel(self, channel, freq_hz=None, dbm=None, degrees=None):
         """
@@ -220,10 +224,14 @@ class AD9959:
             parts.append(f"A{dbm}")
 
         if degrees is not None:
-            degrees = int(degrees)
-            if not (self.PHASE_MIN <= degrees <= self.PHASE_MAX):
+            deg_int = int(degrees)
+            deg_frac = int(round((degrees - deg_int) * 10)) % 10
+            if not (self.PHASE_MIN <= deg_int <= self.PHASE_MAX):
                 raise OutOfRangeError(f"Phase {degrees} deg out of range")
-            parts.append(f"P{degrees}")
+            if deg_int == 360 and deg_frac > 0:
+                raise OutOfRangeError("Phase cannot exceed 360.0 degrees")
+            phase_str = f"{deg_int}.{deg_frac}" if deg_frac else str(deg_int)
+            parts.append(f"P{phase_str}")
 
         return self._send(";".join(parts))
 
@@ -273,10 +281,13 @@ class AD9959:
                 parts.append(f"A{a}")
 
             if 'degrees' in params:
-                p = int(params['degrees'])
-                if not (self.PHASE_MIN <= p <= self.PHASE_MAX):
+                p = params['degrees']
+                p_int = int(p)
+                p_frac = int(round((p - p_int) * 10)) % 10
+                if not (self.PHASE_MIN <= p_int <= self.PHASE_MAX):
                     raise OutOfRangeError(f"Ch{ch} phase {p} deg out of range")
-                parts.append(f"P{p}")
+                phase_str = f"{p_int}.{p_frac}" if p_frac else str(p_int)
+                parts.append(f"P{phase_str}")
 
             fragment = ";".join(parts)
             # +1 for the semicolon joining to previous, +1 for newline
@@ -304,12 +315,30 @@ class AD9959:
 
     # ── Output enable/disable ──────────────────────────────────
 
-    def enable(self):
-        """Enable all RF outputs."""
+    def enable(self, channel=None):
+        """
+        Enable RF output(s).
+
+        Args:
+            channel: Channel number (0-3) for single channel, or None for all.
+        """
+        if channel is not None:
+            if channel not in self.CHANNELS:
+                raise OutOfRangeError(f"Channel must be 0-3, got {channel}")
+            return self._send(f"E{channel}")
         return self._send("E")
 
-    def disable(self):
-        """Disable (power down) all RF outputs."""
+    def disable(self, channel=None):
+        """
+        Disable (power down) RF output(s).
+
+        Args:
+            channel: Channel number (0-3) for single channel, or None for all.
+        """
+        if channel is not None:
+            if channel not in self.CHANNELS:
+                raise OutOfRangeError(f"Channel must be 0-3, got {channel}")
+            return self._send(f"D{channel}")
         return self._send("D")
 
     # ── Info queries ───────────────────────────────────────────
@@ -327,6 +356,33 @@ class AD9959:
     def get_help(self):
         """Get the help text from the device."""
         return "\n".join(self._send("h"))
+
+    def query_channel(self, channel):
+        """
+        Query the current state of a channel.
+
+        Args:
+            channel: Channel number (0-3)
+
+        Returns:
+            Dict with 'freq_hz', 'dbm', 'phase_deg' keys, or raw string if parse fails.
+        """
+        if channel not in self.CHANNELS:
+            raise OutOfRangeError(f"Channel must be 0-3, got {channel}")
+        lines = self._send(f"C{channel};Q")
+        for line in lines:
+            if line.startswith(f"CH{channel}"):
+                parts = line.split()
+                result = {}
+                for part in parts[1:]:
+                    if part.startswith("F="):
+                        result['freq_hz'] = int(part[2:])
+                    elif part.startswith("A="):
+                        result['dbm'] = int(part[2:])
+                    elif part.startswith("P="):
+                        result['phase_deg'] = float(part[2:])
+                return result
+        return lines
 
     # ── Software sweep ─────────────────────────────────────────
 
