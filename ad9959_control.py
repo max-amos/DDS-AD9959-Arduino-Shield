@@ -31,6 +31,34 @@ import sys
 import time
 
 
+# ── Number parsing (scientific notation) ───────────────────────────
+
+
+def parse_number(s):
+    """
+    Parse a numeric string, supporting scientific notation (e.g. 10e6, 1.5e7).
+
+    Returns an integer. Accepts:
+        - Plain integers: '10000000'
+        - Scientific notation: '10e6', '1.5e7', '1e+6', '2.25e8'
+        - Negative values: '-10', '-1.5e1'
+
+    Raises:
+        argparse.ArgumentTypeError: If the string cannot be parsed.
+    """
+    s = s.strip()
+    try:
+        value = float(s)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"invalid number: '{s}'")
+    result = int(value)
+    if abs(value - result) > 0.5:
+        raise argparse.ArgumentTypeError(
+            f"'{s}' = {value}, which does not round to a clean integer"
+        )
+    return result
+
+
 # ── Mock serial for hardware-free testing ──────────────────────────
 
 
@@ -303,30 +331,42 @@ class AD9959Controller:
             if not self._port:
                 raise AD9959Error("No port specified. Pass port= or use --port on CLI.")
             import serial
-            self._ser = serial.Serial(
-                port=self._port,
-                baudrate=self._baudrate,
-                bytesize=serial.EIGHTBITS,
-                parity=serial.PARITY_NONE,
-                stopbits=serial.STOPBITS_ONE,
-                timeout=self._timeout,
-                dsrdtr=False,
-                rtscts=False,
-            )
+            # CRITICAL: Set DTR=False BEFORE opening the port.
+            # Opening with port= in constructor pulses DTR HIGH,
+            # which resets the Arduino MEGA via the auto-reset circuit.
+            self._ser = serial.Serial()
+            self._ser.port = self._port
+            self._ser.baudrate = self._baudrate
+            self._ser.bytesize = serial.EIGHTBITS
+            self._ser.parity = serial.PARITY_NONE
+            self._ser.stopbits = serial.STOPBITS_ONE
+            self._ser.timeout = self._timeout
+            self._ser.dsrdtr = False
+            self._ser.rtscts = False
             self._ser.dtr = False
+            self._ser.open()
             time.sleep(0.1)
 
         self._ser.reset_input_buffer()
         self._connected = True
 
-        # Drain any boot banner sitting in the buffer
-        time.sleep(0.2)
+        # Wait for boot banner. If DTR pulsed (some USB-serial chips do this
+        # regardless of settings), the Arduino resets and takes ~3.5s to boot.
+        # We detect this by waiting and checking for the banner.
+        time.sleep(0.5)
         banner = self._read_response()
+        if not banner:
+            # No banner yet — likely mid-boot. Wait for the full 3s delay.
+            print("[waiting for board boot...]", flush=True)
+            time.sleep(3.5)
+            banner = self._read_response()
         return banner
 
     def close(self):
-        """Close the serial connection."""
+        """Close the serial connection without resetting the Arduino."""
         if self._ser and self._ser.is_open:
+            # Hold DTR low before closing to prevent reset pulse
+            self._ser.dtr = False
             self._ser.close()
         self._connected = False
 
@@ -360,7 +400,9 @@ class AD9959Controller:
             )
         self._ser.write(msg.encode('ascii'))
         self._ser.flush()
-        time.sleep(0.05)
+        # Firmware needs time to process command, update DDS via SPI,
+        # and refresh the OLED display (~16ms I2C write + SPI writes).
+        time.sleep(0.08)
         return self._read_response()
 
     def _read_response(self):
@@ -626,11 +668,11 @@ def build_parser():
     chan = p.add_argument_group('channel configuration')
     chan.add_argument('--channel', '-c', type=int, choices=[0, 1, 2, 3],
                       help='Target channel (0-3)')
-    chan.add_argument('--freq', '-f', type=int, metavar='HZ',
-                      help='Frequency in Hz (100000 - 225000000)')
-    chan.add_argument('--amp', '-a', type=int, metavar='DBM',
+    chan.add_argument('--freq', '-f', type=parse_number, metavar='HZ',
+                      help='Frequency in Hz (100000 - 225000000). Supports scientific notation (e.g. 10e6)')
+    chan.add_argument('--amp', '-a', type=parse_number, metavar='DBM',
                       help='Amplitude in dBm (-60 to -7)')
-    chan.add_argument('--phase', type=int, metavar='DEG',
+    chan.add_argument('--phase', type=parse_number, metavar='DEG',
                       help='Phase in degrees (0 - 360)')
 
     out = p.add_argument_group('output control')
@@ -644,13 +686,13 @@ def build_parser():
                       help='Print the device help text')
 
     sw = p.add_argument_group('frequency sweep')
-    sw.add_argument('--sweep-start', type=int, metavar='HZ',
-                    help='Sweep start frequency')
-    sw.add_argument('--sweep-stop', type=int, metavar='HZ',
-                    help='Sweep stop frequency')
-    sw.add_argument('--sweep-step', type=int, metavar='HZ', default=100_000,
-                    help='Sweep step size (default: 100000)')
-    sw.add_argument('--sweep-dwell', type=int, metavar='MS', default=10,
+    sw.add_argument('--sweep-start', type=parse_number, metavar='HZ',
+                    help='Sweep start frequency. Supports scientific notation (e.g. 1e6)')
+    sw.add_argument('--sweep-stop', type=parse_number, metavar='HZ',
+                    help='Sweep stop frequency. Supports scientific notation (e.g. 50e6)')
+    sw.add_argument('--sweep-step', type=parse_number, metavar='HZ', default=100_000,
+                    help='Sweep step size (default: 100000). Supports scientific notation (e.g. 100e3)')
+    sw.add_argument('--sweep-dwell', type=parse_number, metavar='MS', default=10,
                     help='Dwell time per step in ms (default: 10)')
 
     return p
@@ -935,6 +977,43 @@ def run_tests():
         ctx.set_frequency(0, 1_000_000)
         check("context manager works", ctx.connected)
     check("context manager closes", not ctx.connected)
+
+    # -- parse_number: scientific notation --
+    check("parse 10e6", parse_number('10e6') == 10_000_000,
+          f"got {parse_number('10e6')}")
+    check("parse 1.5e7", parse_number('1.5e7') == 15_000_000,
+          f"got {parse_number('1.5e7')}")
+    check("parse 225e6", parse_number('225e6') == 225_000_000,
+          f"got {parse_number('225e6')}")
+    check("parse 100e3", parse_number('100e3') == 100_000,
+          f"got {parse_number('100e3')}")
+    check("parse 1e+6", parse_number('1e+6') == 1_000_000,
+          f"got {parse_number('1e+6')}")
+    check("parse plain int", parse_number('10000000') == 10_000_000,
+          f"got {parse_number('10000000')}")
+    check("parse negative", parse_number('-10') == -10,
+          f"got {parse_number('-10')}")
+    check("parse -1.5e1", parse_number('-1.5e1') == -15,
+          f"got {parse_number('-1.5e1')}")
+    check("parse 2.25e8", parse_number('2.25e8') == 225_000_000,
+          f"got {parse_number('2.25e8')}")
+
+    try:
+        parse_number('abc')
+        check("parse garbage raises", False, "no exception raised")
+    except argparse.ArgumentTypeError:
+        check("parse garbage raises", True)
+
+    # -- CLI with scientific notation (end-to-end via mock) --
+    ctrl2 = AD9959Controller(test_mode=True)
+    ctrl2.connect()
+    lines = ctrl2.set_frequency(0, parse_number('10e6'))
+    check("set_frequency via parse_number('10e6')",
+          any("10000000" in l for l in lines), str(lines))
+    lines = ctrl2.set_frequency(0, parse_number('225e6'))
+    check("set_frequency via parse_number('225e6')",
+          any("225000000" in l for l in lines), str(lines))
+    ctrl2.close()
 
     # -- report --
     print()
