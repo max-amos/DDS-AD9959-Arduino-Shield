@@ -284,10 +284,10 @@ void MenuInitValues()
 
   //***********
   if (DDSCoreClock.value > N_MAX_VALUE) DDSCoreClock.value=DDSCoreClock.FindMinimalN();
-  if (ClockFreq.Ref_Clk[ClockFreq.value]*(DDSCoreClock.value)*2 > MAX_DDS_CORE_CLOCK_PLL) DDSCoreClock.value=DDSCoreClock.FindMinimalN();
+  if (ClockFreq.Ref_Clk[ClockFreq.value]*(DDSCoreClock.value) > MAX_DDS_CORE_CLOCK_PLL) DDSCoreClock.value=DDSCoreClock.FindMinimalN();
 
   if (DDSCoreClock.value < N_MIN_VALUE) DDSCoreClock.value=DDSCoreClock.FindMaximalN();
-  if (ClockFreq.Ref_Clk[ClockFreq.value]*(DDSCoreClock.value)*2 < MIN_DDS_CORE_CLOCK_PLL) DDSCoreClock.value=DDSCoreClock.FindMaximalN();
+  if (ClockFreq.Ref_Clk[ClockFreq.value]*(DDSCoreClock.value) < MIN_DDS_CORE_CLOCK_PLL) DDSCoreClock.value=DDSCoreClock.FindMaximalN();
   //**********
   DDSCoreClock.SetDDSCoreClock();
 

@@ -110,6 +110,12 @@ ClickButton backButton (BACK_PIN, LOW, CLICKBTN_PULLUP);
 Encoder myEnc(19, 18); // Bourns PEC11R-4220K-S0024 (green)
 
 bool MenuEditMode=false;
+volatile bool modeButtonISR=false;
+volatile bool backButtonISR=false;
+
+bool mainSettingsDirty=false;
+uint32_t mainSettingsLastChange=0;
+#define EEPROM_SAVE_DELAY_MS 2000
 
 void setup() {
   // put your setup code here, to run once:
@@ -239,7 +245,7 @@ void ModeButtonDown()
   if (millis()-lastTimeButtonPressed < modeButton.debounceTime) return;
   lastTimeButtonPressed=millis();
   currState=digitalRead(MODE_PIN);
-  if ((lastState == HIGH) && (currState == LOW)) modeButton.Update();
+  if ((lastState == HIGH) && (currState == LOW)) modeButtonISR=true;
   lastState=currState;
 }
 
@@ -251,7 +257,7 @@ void DownButtonDown()
   if (millis()-lastTimeButtonPressed < backButton.debounceTime) return;
   lastTimeButtonPressed=millis();
   currState=digitalRead(BACK_PIN);
-  if ((lastState == HIGH) && (currState == LOW)) backButton.Update();
+  if ((lastState == HIGH) && (currState == LOW)) backButtonISR=true;
   lastState=currState;
 }
 
@@ -298,40 +304,37 @@ void loop()
     {
       switch(MenuEditMode)
       {
-        case true: 
-          curItem->incValue(curPos); 
-          ApplyChangesToDDS(); //4del
-          /*ui32CurrentOutputFreq=GetFreq(); 
-          DDS.setFreq(ui32CurrentOutputFreq,0); 
-          DDS.setAmpdB(Amplitude.value * -1, 0); */ //uncomment
-          if (menuType == MAIN_MENU) SaveMainSettings();
+        case true:
+          curItem->incValue(curPos);
+          ApplyChangesToDDS();
+          if (menuType == MAIN_MENU) { mainSettingsDirty=true; mainSettingsLastChange=millis(); }
         break;
         case false: curItem=curItem->moveToNextItem(); break;
       }
       DisplayMenu(menuType);
     }
-    
+
     if (curPos<0)
     {
       switch(MenuEditMode)
       {
-        case true: 
+        case true:
           curItem->decValue(curPos);
-          /*
-          ui32CurrentOutputFreq=GetFreq();
-          DDS.setFreq(ui32CurrentOutputFreq,0);
-          DDS.setAmpdB(Amplitude.value * -1, 0);*/ //uncomment
-          ApplyChangesToDDS(); //4del
-          if (menuType == MAIN_MENU) SaveMainSettings(); 
+          ApplyChangesToDDS();
+          if (menuType == MAIN_MENU) { mainSettingsDirty=true; mainSettingsLastChange=millis(); }
         break;
         case false: curItem=curItem->moveToPrevItem(); break;
       }
       DisplayMenu(menuType);
     }
-    /*uint32_t prev;
-    prev=millis();*/
-    DisplayMenu(menuType);  
-    //Serial.println(millis()-prev);
+
+    if (mainSettingsDirty && (millis()-mainSettingsLastChange >= EEPROM_SAVE_DELAY_MS))
+    {
+      SaveMainSettings();
+      mainSettingsDirty=false;
+    }
+
+    DisplayMenu(menuType);
   }
 }
 
