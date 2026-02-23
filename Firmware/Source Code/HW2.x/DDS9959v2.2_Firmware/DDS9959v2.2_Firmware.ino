@@ -126,7 +126,7 @@ void setup() {
   Serial.print(F("SW v"));
   Serial.println(FIRMWAREVERSION);
   
-  u8g2.setBusClock(800000);
+  u8g2.setBusClock(400000);
   //u8g2.setBusClock(1000000UL);
   u8g2.begin();
   u8g2.setFontMode(0);

@@ -9,11 +9,12 @@ char Buff[SERIAL_PACKAGE_MAX_LENGTH + 1];
 
 const char HELP_STRING [] PROGMEM = "C — Set the current output Channel: (0 — 3)\n"
           "F — Sets Frequency in Hz (100000 — 225000000)\n"
-          "A — Sets the power (Amplitude) level of the selected channel in dBm (-60 — -7)\n"
+          "A — Sets the power (Amplitude) level of the selected channel in dBm (-60 — -3)\n"
           "P — Sets the Phase of the selected channel in degrees (0 — 360)\n"
+          "Q — Query current channel state (frequency, amplitude, phase)\n"
           "M — Gets Model\n"
           "E - Enable Outputs (ALL)\n"
-          "D - Disable Outputs (ALL)\n"  
+          "D - Disable Outputs (ALL)\n"
           "V — Gets Firmware Version\n"
           "h — This Help\n"
           "; — Commands Separator"
@@ -179,8 +180,35 @@ void ReadSerialCommands()
           //Serial.println(value);
         break;
 
-        case 'h': //Model request
+        case 'h': //Help
           Serial.println((const __FlashStringHelper *) HELP_STRING);
+        break;
+
+        case 'Q': //Query channel state
+          if (C==-1) {Serial.println(F("The output Channel is not selected! Use \"C\" command to select the Channel.")); return;}
+          {
+            uint32_t freq=0;
+            int16_t amp=0;
+            int16_t phase=0;
+            uint8_t phaseFrac=0;
+            switch (C)
+            {
+              case 0: freq=F0OutputFreq; amp=F0_Amplitude.value; phase=F0_Phase.value; phaseFrac=F0_PhaseFraction.value; break;
+              case 1: freq=F1OutputFreq; amp=F1_Amplitude.value; phase=F1_Phase.value; phaseFrac=F1_PhaseFraction.value; break;
+              case 2: freq=F2OutputFreq; amp=F2_Amplitude.value; phase=F2_Phase.value; phaseFrac=F2_PhaseFraction.value; break;
+              case 3: freq=F3OutputFreq; amp=F3_Amplitude.value; phase=F3_Phase.value; phaseFrac=F3_PhaseFraction.value; break;
+            }
+            Serial.print(F("CH"));
+            Serial.print(C);
+            Serial.print(F(" F="));
+            Serial.print(freq);
+            Serial.print(F(" A=-"));
+            Serial.print(amp);
+            Serial.print(F(" P="));
+            Serial.print(phase);
+            Serial.print(F("."));
+            Serial.println(phaseFrac);
+          }
         break;
 
         default:
@@ -192,4 +220,6 @@ void ReadSerialCommands()
 
     DisplayMenu(menuType);
     ApplyChangesToDDS();
+    mainSettingsDirty=true;
+    mainSettingsLastChange=millis();
 }
